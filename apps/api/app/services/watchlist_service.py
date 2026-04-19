@@ -1,6 +1,6 @@
 from app.schemas.common import Cohort, KeyExec
 from app.schemas.watchlist import Company
-from app.providers.mock_provider import mock_provider
+from app.providers.provider_resolver import get_data_provider
 from app.repositories.storage import storage_repository
 from app.services.clock import utc_now_iso
 
@@ -31,12 +31,15 @@ class WatchlistService:
                 raise CompanyNotFoundError(
                     f"No company with id {company_id} in the current watchlist"
                 )
+            if existing.cohort == cohort:
+                return existing
             raise AlreadyInWatchlistError(
                 f"Company {company_id} is already in cohort '{existing.cohort}'"
             )
 
         timestamp = added_at or utc_now_iso()
-        company = mock_provider.get_company(company_id=company_id, cohort=cohort, added_at=timestamp)
+        provider = get_data_provider()
+        company = provider.get_company(company_id=company_id, cohort=cohort, added_at=timestamp)
         if company is None:
             raise CompanyNotFoundError(
                 f"No company with id {company_id} in the current backend catalog"
@@ -46,13 +49,21 @@ class WatchlistService:
         storage_repository.add_watchlist_entry(company_id=company_id, cohort=cohort, added_at=timestamp)
 
         if seed_prior_snapshot and storage_repository.count_snapshots(company_id) == 0:
-            prior_snapshot = mock_provider.get_prior_snapshot(company_id)
+            prior_snapshot = provider.get_prior_snapshot(company_id)
             if prior_snapshot is not None:
                 storage_repository.add_snapshot(
                     company_id=company_id,
                     taken_at=timestamp,
                     payload=prior_snapshot,
                 )
+            else:
+                current_snapshot = provider.get_current_snapshot(company_id)
+                if current_snapshot is not None:
+                    storage_repository.add_snapshot(
+                        company_id=company_id,
+                        taken_at=timestamp,
+                        payload=current_snapshot,
+                    )
 
         stored = storage_repository.get_watchlist_company(company_id)
         if stored is None:

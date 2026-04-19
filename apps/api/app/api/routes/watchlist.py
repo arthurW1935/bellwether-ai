@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.clients.crustdata import CrustdataClientError
 from app.schemas.common import Cohort
 from app.schemas.watchlist import (
     ErrorResponse,
@@ -53,6 +54,14 @@ async def add_to_watchlist(payload: WatchlistAddRequest) -> WatchlistCompanyResp
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "error": "already_in_watchlist",
+                "message": str(exc),
+            },
+        ) from exc
+    except CrustdataClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "upstream_unavailable",
                 "message": str(exc),
             },
         ) from exc

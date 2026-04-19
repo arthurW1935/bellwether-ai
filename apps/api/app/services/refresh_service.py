@@ -1,6 +1,7 @@
 from time import perf_counter
 
 from app.providers.mock_provider import mock_provider
+from app.providers.provider_resolver import get_data_provider
 from app.repositories.storage import storage_repository
 from app.schemas.brief import Alert
 from app.services.alert_engine import detect_deltas, write_alert
@@ -18,29 +19,45 @@ class RefreshService:
         started_at = perf_counter()
         watchlist = watchlist_service.list_companies()
         alerts_generated = 0
+        provider = get_data_provider()
 
         for company in watchlist:
             previous_snapshot = storage_repository.get_latest_snapshot(company.id)
-            current_payload = mock_provider.get_current_snapshot(company.id)
+            current_payload = provider.get_current_snapshot(company.id)
             if previous_snapshot is None or current_payload is None:
                 continue
 
-            if not force and previous_snapshot["payload"] == current_payload:
+            if previous_snapshot["payload"] == current_payload:
                 continue
 
+            snapshot_taken_at = utc_now_iso()
             storage_repository.add_snapshot(
                 company_id=company.id,
-                taken_at=utc_now_iso(),
+                taken_at=snapshot_taken_at,
                 payload=current_payload,
             )
             previous_payload = previous_snapshot["payload"]
             deltas = detect_deltas(previous_payload, current_payload)
             for delta in deltas:
+                existing_alert = storage_repository.find_matching_alert(company.id, delta)
+                if existing_alert is not None:
+                    continue
+
                 alert = write_alert(
                     alert_id=0,
                     company=watchlist_service.refresh_company_state(company.id, current_payload),
                     delta=delta,
                     detected_at=utc_now_iso(),
+                    trace_context={
+                        "snapshot_collector": {
+                            "api_calls": [
+                                {"endpoint": "/screener/company", "ms": 0}
+                            ]
+                        },
+                        "delta_detector": {
+                            "snapshot_taken_at": snapshot_taken_at,
+                        },
+                    },
                 )
                 alert_id = storage_repository.add_alert(alert)
                 alert.id = alert_id
@@ -69,11 +86,23 @@ class RefreshService:
             company_id=int(staged["company_id"]),
             cohort=str(staged["cohort"]),
         )
+        existing_alert = storage_repository.find_matching_alert(
+            company.id,
+            staged["delta"],
+        )
+        if existing_alert is not None:
+            return existing_alert
+
         alert = write_alert(
             alert_id=0,
             company=company,
             delta=staged["delta"],
             detected_at=utc_now_iso(),
+            trace_context={
+                "snapshot_collector": {
+                    "api_calls": [{"endpoint": "staged_delta", "ms": 0}]
+                }
+            },
         )
         alert.id = storage_repository.add_alert(alert)
         summary = brief_service.build_summary(storage_repository.list_alerts())

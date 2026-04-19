@@ -176,6 +176,24 @@ class StorageRepository:
             )
             return int(cursor.lastrowid)
 
+    def find_matching_alert(self, company_id: int, delta: Delta) -> Alert | None:
+        delta_json = json.dumps(delta.model_dump(), sort_keys=True)
+        with get_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT id, company_id, company_json, cohort, delta_json, alert_type, severity,
+                       explanation, recommended_action, trace_json, detected_at
+                FROM alerts
+                WHERE company_id = ? AND delta_json = ?
+                ORDER BY detected_at DESC, id DESC
+                LIMIT 1
+                """,
+                (company_id, delta_json),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._alert_from_row(row)
+
     def save_brief_run(self, summary: str, generated_at: str, counts: BriefCounts) -> None:
         with get_connection() as connection:
             connection.execute(

@@ -3,6 +3,7 @@ from collections import Counter
 from app.schemas.brief import Alert, BriefCounts, BriefResponse, CompanyAlertsResponse
 from app.schemas.common import Severity
 from app.repositories.storage import storage_repository
+from app.services.llm_analysis_service import llm_analysis_service
 from app.services.watchlist_service import CompanyNotFoundError, watchlist_service
 
 
@@ -42,6 +43,21 @@ class BriefService:
     def build_summary(self, alerts: list[Alert]) -> str:
         if not alerts:
             return "No material alerts today."
+
+        llm_summary = llm_analysis_service.summarize_alerts(
+            [
+                {
+                    "company_name": alert.company.name,
+                    "cohort": alert.cohort,
+                    "alert_type": alert.alert_type,
+                    "severity": alert.severity,
+                    "explanation": alert.explanation,
+                }
+                for alert in alerts[:10]
+            ]
+        )
+        if llm_summary:
+            return llm_summary
 
         counts = Counter(alert.severity for alert in alerts)
         companies = ", ".join(alert.company.name for alert in alerts[:3])

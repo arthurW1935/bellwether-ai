@@ -1,16 +1,19 @@
 from app.schemas.discover import DiscoverResponse, ParsedFilters
-from app.providers.mock_provider import mock_provider
+from app.providers.provider_resolver import get_data_provider
+from app.services.query_parser import query_parser_service
 
 
 class DiscoverService:
     def search(self, query: str) -> DiscoverResponse:
-        normalized_query = query.strip()
-        if not normalized_query:
-            raise ValueError("Could not extract filters from query")
+        parsed = query_parser_service.parse(query)
+        provider = get_data_provider()
 
         return DiscoverResponse(
-            companies=mock_provider.search_companies(normalized_query),
-            parsed_filters=ParsedFilters(description=normalized_query),
+            companies=provider.search_companies(
+                query,
+                filters=parsed.get("filters"),
+            ),
+            parsed_filters=ParsedFilters(description=parsed["description"]),
         )
 
 

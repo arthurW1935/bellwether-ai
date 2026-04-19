@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
+from app.clients.crustdata import CrustdataClientError
 from app.schemas.discover import DiscoverRequest, DiscoverResponse
 from app.services.discover_service import discover_service
 
@@ -19,4 +20,11 @@ async def discover_companies(payload: DiscoverRequest) -> DiscoverResponse:
                 "message": str(exc),
             },
         ) from exc
-
+    except CrustdataClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "upstream_unavailable",
+                "message": str(exc),
+            },
+        ) from exc

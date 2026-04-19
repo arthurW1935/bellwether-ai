@@ -1,6 +1,7 @@
 from app.schemas.brief import Alert, Delta, TraceStep
 from app.schemas.common import AlertType, Cohort, Severity
 from app.schemas.watchlist import Company
+from app.services.llm_analysis_service import llm_analysis_service
 
 
 def detect_deltas(previous_payload: dict, current_payload: dict) -> list[Delta]:
@@ -86,30 +87,59 @@ def write_alert(
     company: Company,
     delta: Delta,
     detected_at: str,
+    trace_context: dict | None = None,
 ) -> Alert:
-    alert_type, severity = classify_delta(delta, company.cohort)
-    explanation = build_explanation(company=company, delta=delta, alert_type=alert_type)
-    recommended_action = build_recommended_action(company=company, alert_type=alert_type)
+    llm_result = llm_analysis_service.analyze_delta(company=company, delta=delta)
+    llm_used = llm_result is not None
+    if llm_result is None:
+        alert_type, severity = classify_delta(delta, company.cohort)
+        explanation = build_explanation(company=company, delta=delta, alert_type=alert_type)
+        recommended_action = build_recommended_action(company=company, alert_type=alert_type)
+        classifier_summary = f"Classified as {alert_type}, {severity}"
+    else:
+        alert_type = llm_result["alert_type"]
+        severity = llm_result["severity"]
+        explanation = llm_result["explanation"]
+        recommended_action = llm_result["recommended_action"]
+        classifier_summary = f"LLM classified as {alert_type}, {severity}"
     trace = [
         TraceStep(
             stage="snapshot_collector",
             summary="Loaded previous and current company snapshots",
             duration_ms=45,
+            detail=(trace_context or {}).get("snapshot_collector"),
         ),
         TraceStep(
             stage="delta_detector",
             summary=f"Detected {delta.kind}",
             duration_ms=8,
+            detail=(trace_context or {}).get("delta_detector"),
         ),
         TraceStep(
             stage="classifier",
-            summary=f"Classified as {alert_type}, {severity}",
+            summary=classifier_summary,
             duration_ms=12,
+            detail=(
+                (trace_context or {}).get("classifier")
+                or (
+                    {"llm_model": llm_analysis_service.llm_model_name()}
+                    if llm_used and llm_analysis_service.llm_model_name()
+                    else None
+                )
+            ),
         ),
         TraceStep(
             stage="writer",
             summary="Generated explanation and recommended action",
             duration_ms=9,
+            detail=(
+                (trace_context or {}).get("writer")
+                or (
+                    {"llm_model": llm_analysis_service.llm_model_name()}
+                    if llm_used and llm_analysis_service.llm_model_name()
+                    else None
+                )
+            ),
         ),
     ]
     return Alert(

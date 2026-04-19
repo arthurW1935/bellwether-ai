@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.clients.crustdata import CrustdataClientError
 from app.schemas.brief import (
     BriefResponse,
     RefreshRequest,
@@ -24,7 +25,16 @@ async def get_brief(
 
 @router.post("/refresh", response_model=RefreshResponse)
 async def refresh_brief(payload: RefreshRequest | None = None) -> RefreshResponse:
-    result = refresh_service.refresh(force=payload.force if payload else False)
+    try:
+        result = refresh_service.refresh(force=payload.force if payload else False)
+    except CrustdataClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "upstream_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
     return RefreshResponse(**result)
 
 

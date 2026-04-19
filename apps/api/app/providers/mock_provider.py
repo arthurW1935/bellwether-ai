@@ -210,7 +210,12 @@ class MockProvider:
             },
         }
 
-    def search_companies(self, query: str) -> list[Company]:
+    def search_companies(
+        self,
+        query: str,
+        *,
+        filters: list[dict] | None = None,
+    ) -> list[Company]:
         tokens = {token.lower() for token in query.split() if token.strip()}
         now = datetime.now(UTC).isoformat()
         companies: list[Company] = []

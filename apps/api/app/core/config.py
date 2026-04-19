@@ -14,9 +14,9 @@ class Settings(BaseSettings):
     crustdata_auth_scheme: Literal["Bearer", "Token"] = "Bearer"
     crustdata_base_url: str = "https://api.crustdata.com"
     crustdata_timeout_seconds: float = 30.0
-    llm_provider: str = "gemini"
-    llm_api_key: str = ""
-    llm_model: str = "gemini-2.5-flash"
+    llm_provider: str = "litellm"
+    gemini_api_key: str = ""
+    llm_model: str = "gemini/gemini-1.5-flash"
     llm_timeout_seconds: float = 30.0
     database_url: str = "sqlite:///./bellwether.db"
     log_level: str = "INFO"
@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     @property
     def llm_configured(self) -> bool:
-        return bool(self.llm_api_key.strip())
+        return bool(self.gemini_api_key.strip())
 
 
 @lru_cache

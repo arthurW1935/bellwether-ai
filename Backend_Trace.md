@@ -122,7 +122,9 @@ High-level responsibilities:
 - deterministic mock provider for company search and state changes
 - seeded demo watchlist on startup
 - Discover API using mock provider
+- live-provider path for Crustdata-backed discover and company enrichment
 - Watchlist add/remove/list using persistence
+- LiteLLM-backed Gemini structured-output path for query parsing and alert generation
 - Refresh flow that:
   - reads watchlist companies
   - loads prior snapshot
@@ -136,12 +138,10 @@ High-level responsibilities:
 
 ### Not Yet Implemented
 
-- live Crustdata HTTP calls
-- NL query to real Crustdata filter generation
-- live company enrichment mapping
-- LLM-backed classifier/writer
 - real person enrichment and exec destination chain
 - production-grade retries, observability, and test suite
+- runtime validation of the live Crustdata field mappings against a real account
+- richer live snapshot extraction beyond the current minimal headcount/funding/jobs mapping
 
 ## Current API Surface
 
@@ -287,6 +287,123 @@ This is intentional so the product can behave end to end before live upstream in
 - `Open gaps / next move`:
   - swap mock provider paths for real Crustdata-backed flows while preserving the same API contract
 
+### Entry 5
+
+- `Date`: April 19, 2026
+- `Chat scope`: Start integrating live Crustdata and a real LLM while preserving mock fallback
+- `What changed`:
+  - added real Crustdata HTTP request execution in the shared client
+  - added a live provider for:
+    - Crustdata-backed discover search
+    - live company enrichment on watchlist add
+    - live current snapshot fetch on refresh
+  - added provider resolution so the app can switch between mock and live mode based on config
+  - added a direct LLM integration path for structured JSON outputs
+  - added LLM-backed query parsing for discover filter generation, with heuristic fallback
+  - added LLM-backed alert classification and writing, with rule-based fallback
+  - added `503 upstream_unavailable` handling on discover, watchlist add, and refresh
+- `Files touched`:
+  - `apps/api/app/core/config.py`
+  - `apps/api/.env.example`
+  - `apps/api/app/clients/crustdata.py`
+  - `apps/api/app/clients/llm.py`
+  - `apps/api/app/providers/live_provider.py`
+  - `apps/api/app/providers/provider_resolver.py`
+  - `apps/api/app/services/query_parser.py`
+  - `apps/api/app/services/llm_analysis_service.py`
+  - `apps/api/app/services/discover_service.py`
+  - `apps/api/app/services/watchlist_service.py`
+  - `apps/api/app/services/bootstrap_service.py`
+  - `apps/api/app/services/refresh_service.py`
+  - `apps/api/app/services/alert_engine.py`
+  - `apps/api/app/providers/mock_provider.py`
+  - `apps/api/app/api/routes/discover.py`
+  - `apps/api/app/api/routes/watchlist.py`
+  - `apps/api/app/api/routes/brief.py`
+- `What is now testable`:
+  - mock mode still works as before
+  - live discover can be exercised when Crustdata and LLM keys are configured and mock mode is disabled
+  - watchlist add can use live company enrichment in that same mode
+  - refresh can fetch live current company state and use a real LLM for alert text and classification
+- `Open gaps / next move`:
+  - validate the live Crustdata field mappings against a real account
+  - improve live snapshot richness and key executive extraction
+  - add automated integration tests around mock vs live mode selection
+
+### Entry 6
+
+- `Date`: April 19, 2026
+- `Chat scope`: Switch the real LLM integration from OpenAI-specific code to LiteLLM with Gemini
+- `What changed`:
+  - removed the OpenAI-specific LLM config assumptions
+  - switched backend LLM config to use:
+    - LiteLLM as the client library
+    - a Gemini API key from `BELLWETHER_GEMINI_API_KEY`
+    - default model `gemini/gemini-1.5-flash`
+  - replaced the direct OpenAI Responses client with LiteLLM chat-completion based JSON generation
+  - updated the backend trace to reflect that the intended real LLM stack is LiteLLM + Gemini, not OpenAI
+- `Files touched`:
+  - `apps/api/pyproject.toml`
+  - `apps/api/app/core/config.py`
+  - `apps/api/.env.example`
+  - `apps/api/app/clients/llm.py`
+  - `Backend_Trace.md`
+- `What is now testable`:
+  - mock mode still works unchanged
+  - real LLM mode now expects a Gemini key and LiteLLM-backed Gemini model configuration
+- `Open gaps / next move`:
+  - validate the inferred LiteLLM model string against a real Gemini key
+  - if needed, adjust the configured model alias to the exact LiteLLM-supported Gemini naming used in your account setup
+
+### Entry 7
+
+- `Date`: April 19, 2026
+- `Chat scope`: Harden the live Crustdata path before real API-key testing
+- `What changed`:
+  - added automatic `Bearer`/`Token` auth fallback in the Crustdata client to handle the current docs inconsistency more safely
+  - expanded live company enrichment fields using documented Crustdata company dictionary fields
+  - added live decision-maker extraction from `founder_names_and_profile_urls` into Bellwether `key_execs`
+  - added richer live snapshot normalization including growth metrics
+  - added an inferred prior-snapshot path from live headcount growth fields so first-run live refresh has a better chance of producing a meaningful delta
+- `Files touched`:
+  - `apps/api/app/clients/crustdata.py`
+  - `apps/api/app/providers/live_provider.py`
+  - `Backend_Trace.md`
+- `What is now testable`:
+  - live Crustdata auth can tolerate either documented auth scheme without a manual code change
+  - live company cards should have a better chance of showing key people and richer state
+  - first-run live refresh can sometimes infer a usable baseline from documented headcount growth metrics
+- `Open gaps / next move`:
+  - validate the real response shape for `founder_names_and_profile_urls`
+  - confirm the live inferred baseline is good enough with real company records and adjust if it is too noisy
+
+### Entry 8
+
+- `Date`: April 19, 2026
+- `Chat scope`: Tighten the remaining P0 backend contract behavior before real-key testing
+- `What changed`:
+  - made `POST /watchlist/add` idempotent for the same `(company_id, cohort)` pair by returning the existing company instead of treating it as an error
+  - added duplicate-alert protection in refresh and staged-trigger flows using exact delta matching
+  - made refresh safer to rerun by skipping identical latest snapshots instead of persisting redundant state
+  - upgraded brief summary generation to use the real LLM path with fallback to the heuristic summary
+  - enriched alert traces with more meaningful detail payloads so the reasoning trace is closer to the API contract intent
+- `Files touched`:
+  - `apps/api/app/repositories/storage.py`
+  - `apps/api/app/services/llm_analysis_service.py`
+  - `apps/api/app/services/alert_engine.py`
+  - `apps/api/app/services/brief_service.py`
+  - `apps/api/app/services/refresh_service.py`
+  - `apps/api/app/services/watchlist_service.py`
+  - `Backend_Trace.md`
+- `What is now testable`:
+  - repeated watchlist adds for the same company and cohort are safe
+  - refresh can be rerun without multiplying identical alerts
+  - brief summaries can exercise the live LLM path as soon as keys are configured
+  - trace payloads now carry more useful orchestration context in the stored alerts
+- `Open gaps / next move`:
+  - run the live API-key smoke test and validate the remaining real response-shape assumptions
+  - if live LLM JSON output is unstable, tighten prompts or add a retry pass for structured output repair
+
 ## How To Continue From Here
 
 If another LLM continues this work, the safest next sequence is:
@@ -303,6 +420,98 @@ If another LLM continues this work, the safest next sequence is:
 2. Crustdata auth/header behavior is not fully validated yet.
 3. Runtime verification was not completed in this environment because the local Python launcher returned an access-denied error.
 4. No automated tests have been written yet.
+
+## Live Test Checklist
+
+Use this checklist when real API keys are available.
+
+### Required env before testing
+
+- `BELLWETHER_USE_MOCK_PROVIDERS=false`
+- `BELLWETHER_CRUSTDATA_API_KEY=<real key>`
+- `BELLWETHER_GEMINI_API_KEY=<real key>`
+- optional: `BELLWETHER_CRUSTDATA_AUTH_SCHEME=Bearer`
+- optional: `BELLWETHER_LLM_MODEL=gemini/gemini-1.5-flash`
+
+### Smoke test order
+
+1. `GET /health`
+   Expected:
+   - `200`
+   - response contains `{ "ok": true, "version": "0.1.0" }`
+
+2. `POST /discover`
+   Example body:
+   ```json
+   { "query": "Series A fintech in India with 20% headcount growth" }
+   ```
+   Expected:
+   - `200`
+   - `parsed_filters.description` is populated
+   - `companies` is an array
+   Watch for:
+   - `503 upstream_unavailable` means Crustdata auth, permissions, or upstream shape problems
+   - empty `companies` can still be valid if the thesis is too narrow
+
+3. `POST /watchlist/add`
+   Example body:
+   ```json
+   { "company_id": 123456, "cohort": "watching" }
+   ```
+   Expected:
+   - `200`
+   - returns `{ "company": ... }`
+   - repeating the same request should return `200` with the same company because this flow is now idempotent for the same cohort
+   Watch for:
+   - `404 company_not_found`
+   - `503 upstream_unavailable`
+
+4. `GET /watchlist`
+   Expected:
+   - `200`
+   - recently added company is present
+
+5. `POST /refresh`
+   Example body:
+   ```json
+   { "force": false }
+   ```
+   Expected:
+   - `200`
+   - response includes `brief`, `duration_ms`, `companies_processed`, `alerts_generated`
+   - rerunning should be safe and should not multiply identical alerts
+   Watch for:
+   - `alerts_generated` may be `0` if live data produces no detectable deltas
+   - `503 upstream_unavailable` means live Crustdata refresh failed
+
+6. `GET /brief`
+   Expected:
+   - `200`
+   - `summary` is populated
+   - `counts` object is populated
+   - `alerts` are ordered by severity then recency
+
+7. `GET /companies/{company_id}/alerts`
+   Expected:
+   - `200`
+   - returns the company plus alert history for that company
+
+8. `POST /trigger`
+   Example body:
+   ```json
+   { "delta_id": "exec_departure_demo_1" }
+   ```
+   Expected:
+   - `200`
+   - returns `{ "alert": ... }`
+   - useful as a fallback sanity check even when live refresh produces no interesting deltas
+
+### Known validation points during testing
+
+- confirm the exact live response shape of `founder_names_and_profile_urls`
+- confirm the exact LiteLLM model alias accepted in your environment
+- check whether the inferred live prior snapshot creates useful deltas or noisy ones
+- verify that Crustdata field permissions allow the fields requested by the live provider
 
 ## Important Files To Read Next
 
