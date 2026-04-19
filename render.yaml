@@ -1,0 +1,27 @@
+services:
+  # ── Backend ────────────────────────────────────────────────────────────────
+  - type: web
+    name: bellwether-api
+    runtime: python
+    rootDir: apps/api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: BELLWETHER_ENVIRONMENT
+        value: production
+      - key: BELLWETHER_USE_MOCK_PROVIDERS
+        value: "true"
+      - key: BELLWETHER_SEED_DEMO_DATA
+        value: "true"
+      - key: BELLWETHER_LOG_LEVEL
+        value: INFO
+      # Set BELLWETHER_CORS_ORIGINS to your frontend URL after first deploy
+      # e.g. https://bellwether-web.onrender.com
+      - key: BELLWETHER_CORS_ORIGINS
+        value: "*"
+      # Add real keys in the Render dashboard (Environment tab) to go live:
+      - key: BELLWETHER_GEMINI_API_KEY
+        sync: false
+      - key: BELLWETHER_CRUSTDATA_API_KEY
+        sync: false
+
